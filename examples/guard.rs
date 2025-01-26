@@ -11,7 +11,7 @@ use rocket_gssapi::{GssapiFairing, GssapiAuth};
 #[launch]
 async fn rocket() -> _ {
     let name = Name::new(
-        "HTTP/localhost@LUDD.LTU.SE".as_ref(),
+        "HTTP/example@example.com".as_ref(),
         Some(&GSS_NT_KRB5_PRINCIPAL),
     )
         .expect("Can't decode principal name")
@@ -22,7 +22,7 @@ async fn rocket() -> _ {
     desired_mechs.add(&GSS_MECH_KRB5).expect("Failed to add OID");
 
     rocket::build()
-        .attach(GssapiFairing::new(Some(name), None))
+        .attach(GssapiFairing::new(Some(name), Some(desired_mechs)))
         .mount("/", routes![secure_index])
 }
 
