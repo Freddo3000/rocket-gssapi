@@ -1,43 +1,44 @@
+use crate::guard::GssapiAuth;
+use base64::prelude::*;
 use libgssapi::context::{SecurityContext, ServerCtx};
 use libgssapi::credential::{Cred, CredUsage};
 use libgssapi::name::Name;
 use libgssapi::oid::OidSet;
 use rocket::fairing::{Fairing, Info, Kind};
-use rocket::{warn, error, info, Data, Request, Response};
+use rocket::form::Shareable;
+use rocket::http::{Header, Status};
+use rocket::{error, info, warn, Data, Orbit, Request, Response, Rocket};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use base64::prelude::*;
-use rocket::form::Shareable;
-use rocket::http::{Header, Status};
-use crate::guard::GssapiAuth;
-
 
 type ContextStore = HashMap<String, Arc<Mutex<ServerCtx>>>;
+type DelegateStore = Vec<Cred>;
 type IdentifierFunction = dyn Fn(&mut Request) -> Option<String> + Send + Sync;
 
 pub struct GssapiFairing {
     name: Option<Name>,
     desired_mechs: Option<OidSet>,
     identifier: Box<IdentifierFunction>,
+    // todo: implement method to prune these two
     contexts: Arc<Mutex<ContextStore>>,
+    delegate_credentials: Arc<Mutex<DelegateStore>>,
 }
 impl GssapiFairing {
     /// Creates a Kerberos fairing, setting up it's use for the GssapiAuth guard
-    /// 
+    ///
     /// Takes a GSSAPI name and supported GSSAPI mechanisms as arguments. Set to None to use
     /// system defaults(?)
     pub fn new(name: Option<Name>, desired_mechs: Option<OidSet>) -> GssapiFairing {
         GssapiFairing {
             name,
             desired_mechs,
-            identifier: Box::new(|r| {
-                r.client_ip().map(|ip| ip.to_string())
-            }),
+            identifier: Box::new(|r| r.client_ip().map(|ip| ip.to_string())),
             contexts: Arc::new(Mutex::new(ContextStore::default())),
+            delegate_credentials: Arc::new(Mutex::new(vec![])),
         }
     }
-    
+
     /// By default, the `Request::client_ip()` result is used to identify clients in order to
     /// work their SecurityContexts to completion. If you instead want to use a different method
     /// to identify clients you can set it here.
@@ -45,7 +46,6 @@ impl GssapiFairing {
         self.identifier = Box::new(identifier);
     }
 }
-
 
 #[derive(Debug, Clone)]
 struct CachedBuf(Vec<u8>);
@@ -72,7 +72,7 @@ impl Fairing for GssapiFairing {
             kind: Kind::Response | Kind::Request,
         }
     }
-
+    
     /// This function handles the GSSAPI data sent from the client in the `Authorization: Negotiate`
     /// header, parsing it to a format suitable for use for the GssapiAuth request guard.
     ///
@@ -111,7 +111,10 @@ impl Fairing for GssapiFairing {
                         let res = match ctx.step(client_tok) {
                             Ok(res) => res,
                             Err(e) => {
-                                warn!("Kerberos: Failed to work context: {}, client: {}", e, client);
+                                warn!(
+                                    "Kerberos: Failed to work context: {}, client: {}",
+                                    e, client
+                                );
                                 is_failed = true;
                                 None
                             }
@@ -119,6 +122,12 @@ impl Fairing for GssapiFairing {
 
                         // Pass the Gssapi data to the request guard
                         if ctx.is_complete() {
+                            if let Some(c) = ctx.take_delegated_cred() {
+                                self.delegate_credentials
+                                    .lock()
+                                    .expect("Kerberos: Failed to lock Delegate Credentials store")
+                                    .push(c);
+                            }
                             req.local_cache(|| {
                                 let g: GssapiAuth = ctx.into();
                                 g
@@ -131,8 +140,10 @@ impl Fairing for GssapiFairing {
                         is_failed = true;
                         None
                     }
-                } else {None};
-                
+                } else {
+                    None
+                };
+
                 if is_failed {
                     ctx_store.remove(&client.to_string());
                 };
@@ -143,12 +154,15 @@ impl Fairing for GssapiFairing {
                         self.name.as_ref(),
                         None,
                         CredUsage::Accept,
-                        self.desired_mechs.as_ref()
+                        self.desired_mechs.as_ref(),
                     );
                     let cred = if let Ok(c) = cred {
                         c
                     } else {
-                        error!("Kerberos: Failed to acquire credentials: {}", cred.unwrap_err());
+                        error!(
+                            "Kerberos: Failed to acquire credentials: {}",
+                            cred.unwrap_err()
+                        );
                         return;
                     };
 
@@ -157,7 +171,10 @@ impl Fairing for GssapiFairing {
                     let res = match ctx.step(client_tok) {
                         Ok(res) => res,
                         Err(e) => {
-                            warn!("Kerberos: Failed to work context: {}, client: {}", e, client);
+                            warn!(
+                                "Kerberos: Failed to work context: {}, client: {}",
+                                e, client
+                            );
                             return;
                         }
                     };
@@ -167,10 +184,18 @@ impl Fairing for GssapiFairing {
                         ctx_store.insert(client.to_string(), Arc::new(Mutex::new(ctx)));
                     } else {
                         // Pass the Gssapi data to the request guard
+                        if let Some(c) = ctx.take_delegated_cred() {
+                            self.delegate_credentials
+                                .lock()
+                                .expect("Kerberos: Failed to lock Delegate Credentials store")
+                                .push(c);
+                        }
                         req.local_cache(|| GssapiAuth::from(ctx));
                     };
                     res
-                } else {None};
+                } else {
+                    None
+                };
 
                 if is_complete {
                     // Clean up the old context
@@ -181,7 +206,10 @@ impl Fairing for GssapiFairing {
                     req.local_cache(|| CachedBuf(buf.to_vec()));
                 }
             } else {
-                warn!("Kerberos: Failed to decode Negotiate header: {}, client: {}", token, client);
+                warn!(
+                    "Kerberos: Failed to decode Negotiate header: {}, client: {}",
+                    token, client
+                );
             }
         }
     }
@@ -203,7 +231,7 @@ impl Fairing for GssapiFairing {
                 let buf = &req.local_cache(|| CachedBuf(Vec::<u8>::new())).0;
                 res.set_header(Header::new(
                     "WWW-Authenticate",
-                    format!("Negotiate {}", BASE64_STANDARD.encode(buf))
+                    format!("Negotiate {}", BASE64_STANDARD.encode(buf)),
                 ));
             }
             Status::Ok => {
@@ -211,7 +239,7 @@ impl Fairing for GssapiFairing {
                 if !buf.is_empty() {
                     res.set_header(Header::new(
                         "WWW-Authenticate",
-                        format!("Negotiate {}", BASE64_STANDARD.encode(buf))
+                        format!("Negotiate {}", BASE64_STANDARD.encode(buf)),
                     ));
                 }
             }
