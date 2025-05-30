@@ -1,11 +1,12 @@
 use libgssapi::context::{SecurityContext, ServerCtx};
 use rocket::Request;
 use std::ops::Deref;
-use std::sync::MutexGuard;
+use std::sync::{Arc, MutexGuard};
+use libgssapi::credential::Cred;
 use rocket::form::Shareable;
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
-
+use rocket::tokio::sync::Mutex;
 
 #[derive(Debug, Default, Clone)]
 pub struct GssapiAuth {
@@ -13,6 +14,7 @@ pub struct GssapiAuth {
     pub source: Option<String>,
     pub lifetime: Option<f32>,
     pub complete: bool,
+    pub delegated_cred: Arc<Mutex<Option<Cred>>>,
 }
 impl Deref for GssapiAuth {
     type Target = bool;
@@ -36,8 +38,8 @@ impl From<ServerCtx> for GssapiAuth {
             source: ctx.source_name()
                 .map_or(None, |t| Some(t.to_string())),
             lifetime: ctx.lifetime().map_or(None, |l| Some(l.as_secs_f32())),
-            complete: ctx.is_complete()
-
+            complete: ctx.is_complete(),
+            delegated_cred: Arc::new(Mutex::new(ctx.take_delegated_cred()))
         }
     }
 }
@@ -50,8 +52,8 @@ impl From<MutexGuard<'_, ServerCtx>> for GssapiAuth {
             source: ctx.source_name()
                 .map_or(None, |t| Some(t.to_string())),
             lifetime: ctx.lifetime().map_or(None, |l| Some(l.as_secs_f32())),
-            complete: ctx.is_complete()
-
+            complete: ctx.is_complete(),
+            delegated_cred: Arc::new(Mutex::new(ctx.take_delegated_cred()))
         }
     }
 }

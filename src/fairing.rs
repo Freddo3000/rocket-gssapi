@@ -13,7 +13,6 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 type ContextStore = HashMap<String, Arc<Mutex<ServerCtx>>>;
-type DelegateStore = Vec<Cred>;
 type IdentifierFunction = dyn Fn(&mut Request) -> Option<String> + Send + Sync;
 
 pub struct GssapiFairing {
@@ -22,7 +21,6 @@ pub struct GssapiFairing {
     identifier: Box<IdentifierFunction>,
     // todo: implement method to prune these two
     contexts: Arc<Mutex<ContextStore>>,
-    delegate_credentials: Arc<Mutex<DelegateStore>>,
 }
 impl GssapiFairing {
     /// Creates a Kerberos fairing, setting up it's use for the GssapiAuth guard
@@ -35,7 +33,6 @@ impl GssapiFairing {
             desired_mechs,
             identifier: Box::new(|r| r.client_ip().map(|ip| ip.to_string())),
             contexts: Arc::new(Mutex::new(ContextStore::default())),
-            delegate_credentials: Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -122,12 +119,6 @@ impl Fairing for GssapiFairing {
 
                         // Pass the Gssapi data to the request guard
                         if ctx.is_complete() {
-                            if let Some(c) = ctx.take_delegated_cred() {
-                                self.delegate_credentials
-                                    .lock()
-                                    .expect("Kerberos: Failed to lock Delegate Credentials store")
-                                    .push(c);
-                            }
                             req.local_cache(|| {
                                 let g: GssapiAuth = ctx.into();
                                 g
@@ -184,12 +175,6 @@ impl Fairing for GssapiFairing {
                         ctx_store.insert(client.to_string(), Arc::new(Mutex::new(ctx)));
                     } else {
                         // Pass the Gssapi data to the request guard
-                        if let Some(c) = ctx.take_delegated_cred() {
-                            self.delegate_credentials
-                                .lock()
-                                .expect("Kerberos: Failed to lock Delegate Credentials store")
-                                .push(c);
-                        }
                         req.local_cache(|| GssapiAuth::from(ctx));
                     };
                     res
