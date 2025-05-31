@@ -1,3 +1,4 @@
+use libgssapi::credential::CredUsage;
 use rocket::{get, launch, routes};
 use rocket_gssapi::oid::{GSS_NT_KRB5_PRINCIPAL, GSS_MECH_KRB5, OidSet};
 use rocket_gssapi::name::Name;
@@ -17,7 +18,7 @@ async fn rocket() -> _ {
     desired_mechs.add(&GSS_MECH_KRB5).expect("Failed to add OID");
 
     rocket::build()
-        .attach(GssapiFairing::new(Some(name), Some(desired_mechs)))
+        .attach(GssapiFairing::new(Some(name), None, CredUsage::Accept))
         .mount("/", routes![secure_index])
 }
 

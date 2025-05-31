@@ -21,18 +21,20 @@ pub struct GssapiFairing {
     identifier: Box<IdentifierFunction>,
     // todo: implement method to prune these two
     contexts: Arc<Mutex<ContextStore>>,
+    usage: CredUsage,
 }
 impl GssapiFairing {
     /// Creates a Kerberos fairing, setting up it's use for the GssapiAuth guard
     ///
     /// Takes a GSSAPI name and supported GSSAPI mechanisms as arguments. Set to None to use
     /// system defaults(?)
-    pub fn new(name: Option<Name>, desired_mechs: Option<OidSet>) -> GssapiFairing {
+    pub fn new(name: Option<Name>, desired_mechs: Option<OidSet>, usage: CredUsage) -> GssapiFairing {
         GssapiFairing {
             name,
             desired_mechs,
             identifier: Box::new(|r| r.client_ip().map(|ip| ip.to_string())),
             contexts: Arc::new(Mutex::new(ContextStore::default())),
+            usage,
         }
     }
 
@@ -144,7 +146,7 @@ impl Fairing for GssapiFairing {
                     let cred = Cred::acquire(
                         self.name.as_ref(),
                         None,
-                        CredUsage::Accept,
+                        self.usage,
                         self.desired_mechs.as_ref(),
                     );
                     let cred = if let Ok(c) = cred {
