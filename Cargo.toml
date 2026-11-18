@@ -1,8 +1,8 @@
 [package]
 name = "rocket-gssapi"
 description = "Provides HTTP GSSAPI authentication support for Rocket in accordance to RFC 4559"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 authors = ["Fredrik Falk <freddo@ludd.ltu.se>"]
 
 repository = "https://git.ludd.ltu.se/freddo/rocket-gssapi"
