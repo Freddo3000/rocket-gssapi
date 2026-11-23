@@ -8,14 +8,14 @@ use rocket_gssapi::{GssapiFairing, GssapiAuth};
 async fn rocket() -> _ {
     let name = Name::new(
         "HTTP/example@example.com".as_ref(),
-        Some(&GSS_NT_KRB5_PRINCIPAL),
+        Some(GSS_NT_KRB5_PRINCIPAL),
     )
         .expect("Can't decode principal name")
-        .canonicalize(Some(&GSS_MECH_KRB5))
+        .canonicalize(Some(GSS_MECH_KRB5))
         .expect("Can't canonicalize principal name");
 
-    let mut desired_mechs = OidSet::new().expect("Failed to create OIDSet");
-    desired_mechs.add(&GSS_MECH_KRB5).expect("Failed to add OID");
+    let mut desired_mechs = OidSet::new();
+    desired_mechs.add(GSS_MECH_KRB5).expect("Failed to add OID");
 
     rocket::build()
         .attach(GssapiFairing::new(Some(name), None, CredUsage::Accept))

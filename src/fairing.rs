@@ -7,7 +7,7 @@ use libgssapi::oid::OidSet;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::form::Shareable;
 use rocket::http::{Header, Status};
-use rocket::{error, info, warn, Data, Orbit, Request, Response, Rocket};
+use rocket::{error, info, warn, Data, Request, Response, Rocket};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
@@ -107,7 +107,7 @@ impl Fairing for GssapiFairing {
                 let buf = if let Some(ctx) = ctx_store.get(&client.to_string()) {
                     // Existing context still present
                     if let Ok(mut ctx) = ctx.try_lock() {
-                        let res = match ctx.step(client_tok) {
+                        let res = match ctx.step(client_tok, None) {
                             Ok(res) => res,
                             Err(e) => {
                                 warn!(
@@ -161,7 +161,7 @@ impl Fairing for GssapiFairing {
 
                     let mut ctx = ServerCtx::new(Some(cred));
 
-                    let res = match ctx.step(client_tok) {
+                    let res = match ctx.step(client_tok, None) {
                         Ok(res) => res,
                         Err(e) => {
                             warn!(

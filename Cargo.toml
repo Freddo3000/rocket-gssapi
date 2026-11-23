@@ -18,6 +18,6 @@ categories = ["authentication", "web-programming"]
 
 
 [dependencies]
-base64 = "~0.22"
-rocket = { git = "https://github.com/freddo3000/Rocket", branch = "patch-1", version = "0.6.0-dev" }
-libgssapi = "~0.9"
+base64 = "~0.23"
+rocket = { git = "https://github.com/rwf2/Rocket" }
+libgssapi = "~0.11"
